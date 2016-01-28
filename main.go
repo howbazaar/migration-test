@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 
 	"github.com/juju/cmd"
@@ -18,6 +19,7 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/state/migration"
 )
 
 var logger = loggo.GetLogger("juju")
@@ -126,23 +128,40 @@ func (c *MigrateCommand) exportModel(ctx *cmd.Context, st *state.State) error {
 	}
 	defer modelState.Close()
 
-	desc, err := modelState.Export()
+	model, err := modelState.Export()
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	bytes, err := yaml.Marshal(desc.Model())
+	bytes, err := yaml.Marshal(model)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	ctx.Stdout.Write(bytes)
-	fmt.Fprintln(ctx.Stdout, "")
-
 	return nil
 }
 
 func (c *MigrateCommand) importModel(ctx *cmd.Context, st *state.State) error {
 	ctx.Infof("\nimport ")
-	return errors.NotImplementedf("import")
+
+	bytes, err := ioutil.ReadFile(c.filename)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	model, err := migration.DeserializeModel(bytes)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	env, newSt, err := st.Import(model)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer newSt.Close()
+
+	ctx.Infof("success, env %s/%s imported", env.Owner().Canonical(), env.Name())
+
+	return nil
 }

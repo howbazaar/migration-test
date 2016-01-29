@@ -1,0 +1,28 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+
+import sys
+import json
+import subprocess
+
+
+if len(sys.argv) < 2:
+   print("missing env name")
+   sys.exit(1)
+
+model = sys.argv[1]
+print("Dealing with {}".format(model))
+
+out = subprocess.check_output(['juju', 'status', '-e', model, '--format=json'])
+
+print("stdout: ------\n{}\n--------\n".format(out))
+
+
+data = json.loads(out)
+
+from pprint import pprint
+pprint(data)
+
+for id, machine in data['machines'].items():
+   print(subprocess.check_output(['juju', 'ssh', '-e', model, id, 'sudo', 'stop', 'jujud-machine-{}'.format(id)]))

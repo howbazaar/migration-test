@@ -17,9 +17,9 @@ import (
 
 	"github.com/juju/juju/agent"
 	"github.com/juju/juju/environs"
+	"github.com/juju/juju/migration"
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/state"
-	"github.com/juju/juju/state/migration"
 )
 
 var logger = loggo.GetLogger("juju")
@@ -86,7 +86,13 @@ func (c *MigrateCommand) Init(args []string) error {
 	return cmd.CheckEmpty(args)
 }
 
-func (c *MigrateCommand) Run(ctx *cmd.Context) error {
+func (c *MigrateCommand) Run(ctx *cmd.Context) (err error) {
+
+	defer func() {
+		if err != nil {
+			fmt.Fprintf(ctx.Stdout, "error stack:\n"+errors.ErrorStack(err))
+		}
+	}()
 
 	loggo.GetLogger("juju").SetLogLevel(loggo.DEBUG)
 	conf, err := agent.ReadConfig(agent.ConfigPath(c.dataDir, c.machineTag))
@@ -98,7 +104,7 @@ func (c *MigrateCommand) Run(ctx *cmd.Context) error {
 	if !ok {
 		return errors.Errorf("no state info available")
 	}
-	st, err := state.Open(conf.Environment(), info, mongo.DefaultDialOpts(), environs.NewStatePolicy())
+	st, err := state.Open(conf.Model(), info, mongo.DefaultDialOpts(), environs.NewStatePolicy())
 	if err != nil {
 		return err
 	}
@@ -116,13 +122,13 @@ func (c *MigrateCommand) exportModel(ctx *cmd.Context, st *state.State) error {
 	ctx.Infof("\nexport %s", c.modelUUID)
 
 	// first make sure the uuid is good enough
-	tag := names.NewEnvironTag(c.modelUUID)
-	_, err := st.GetEnvironment(tag)
+	tag := names.NewModelTag(c.modelUUID)
+	_, err := st.GetModel(tag)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	modelState, err := st.ForEnviron(tag)
+	modelState, err := st.ForModel(tag)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -150,18 +156,13 @@ func (c *MigrateCommand) importModel(ctx *cmd.Context, st *state.State) error {
 		return errors.Trace(err)
 	}
 
-	model, err := migration.DeserializeModel(bytes)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	env, newSt, err := st.Import(model)
+	env, newSt, err := migration.ImportModel(st, bytes)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	defer newSt.Close()
 
-	ctx.Infof("success, env %s/%s imported", env.Owner().Canonical(), env.Name())
+	ctx.Infof("success, model %s/%s imported", env.Owner().Canonical(), env.Name())
 
 	return nil
 }
